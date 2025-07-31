@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.26;
 
-
-
 struct Deployment {
     uint256 cid;
     address uniswapV2Router;
@@ -11,11 +9,7 @@ struct Deployment {
     address uniswapV3Factory;
     address wrappedEther;
     address nativeEther;
-
-
 }
-
-
 
 contract DeploymentAddresses {
     Deployment internal deployment;

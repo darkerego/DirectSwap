@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
-
+// Copyright Darkerego, 2025
 import {UniswapV2DirectSwapper} from "lib/SwapV2.sol";
 import{UniswapV3DirectSwapper} from "lib/SwapV3.sol";
 

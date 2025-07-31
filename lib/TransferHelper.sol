@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
-
+// Copyright Darkerego, 2025
 abstract contract TransferHelper {
     error CallFailed(address,bytes4);
     error StaticCallFailed(address recipient, bytes data);

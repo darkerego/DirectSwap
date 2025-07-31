@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.25;
+pragma solidity ^0.8.26;
+// Copyright Darkerego, 2025
 import {DeploymentAddresses} from "lib/DeploymentAddresses.sol";
 import {TransferHelper} from "lib/TransferHelper.sol";
 
@@ -73,8 +74,8 @@ contract UniswapV3DirectSwapper is DeploymentAddresses, TransferHelper {
         address tokenOut,
         uint256 amountIn,
         uint24 fee,
-        bool pullIn,
-        bool pushOut
+        bool pullIn, // calls transferFrom(msg.sender, address(this), amountIn) before swap
+        bool pushOut // calls transfer(msg.sender, amountOut) after swap
     ) internal returns (address poolUsed, uint256 amountOut) {
 
         (address _tokenOut, address _tokenIn, uint256 _amountIn, uint24 _fee) = (tokenIn, tokenOut, amountIn, fee);

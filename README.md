@@ -1,5 +1,7 @@
 # DirectSwap
+=================
 
+<b>Copyright Darkerego, 2025</b>
 
 
 <p>

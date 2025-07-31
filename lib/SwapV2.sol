@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.26;
+// Copyright Darkerego, 2025
 import {DeploymentAddresses} from "lib/DeploymentAddresses.sol";
 import {TransferHelper} from "lib/TransferHelper.sol";
 
