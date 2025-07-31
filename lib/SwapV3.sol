@@ -172,5 +172,5 @@ contract UniswapV3DirectSwapper is DeploymentAddresses, TransferHelper {
 
     }
 
-    receive() external payable {}
+
 }

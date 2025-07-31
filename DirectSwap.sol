@@ -25,6 +25,8 @@ contract UniswapDirectSwap is UniswapV2DirectSwapper, UniswapV3DirectSwapper {
         _;
     }
 
+    receive() external payable {}
+
     /*
     * @dev : overrides SwapV3.swapV3 with authentication
     * @param tokenIn : spend token
