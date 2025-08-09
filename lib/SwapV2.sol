@@ -1,40 +1,23 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
-// Copyright Darkerego, 2025
+pragma solidity ^0.8.30;
 import {DeploymentAddresses} from "lib/DeploymentAddresses.sol";
 import {TransferHelper} from "lib/TransferHelper.sol";
+import {IWETH, IUniswapV2Pair, IUniswapV2Factory} from "lib/Interfaces.sol";
 
 
-interface IUniswapV2Factory {
-    function getPair(address tokenA, address tokenB) external view returns (address);
-}
-
-interface IUniswapV2Pair {
-    function getReserves() external view returns (
-        uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast
-    );
-    function token0() external view returns (address);
-    function token1() external view returns (address);
-    function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data) external;
-}
-
-
-interface IWETH {
-    function deposit() external payable;
-    function withdraw(uint256) external;
-}
 
 abstract contract UniswapV2DirectSwapper is DeploymentAddresses, TransferHelper {
-    address private immutable _factory;
-    address private immutable WETH;
+    address private immutable factory;
+    address private immutable weth;
     error PairNotFound();
     error MismatchedEthAmount(uint256 msgValue, uint256 amountIn);
     error InvalidToken(address);
 
     constructor() {
-        _factory = deployment.uniswapV2Factory;
-        WETH = deployment.wrappedEther;
+        factory = deployment.uniswapV2Factory;
+        weth = deployment.wrappedEther;
     }
+
 
     /*
     * @notice Swap tokens externally using Uniswap V3.
@@ -57,15 +40,16 @@ abstract contract UniswapV2DirectSwapper is DeploymentAddresses, TransferHelper 
         address _tokenOut = tokenOut;
         uint256 tokenOutBalanceBefore = tokenBalance(tokenOut, address(this));
         uint256 _amountIn = amountIn;
-        pair = IUniswapV2Factory(_factory).getPair(tokenIn, tokenOut);
+        pair = IUniswapV2Factory(factory).getPair(tokenIn, tokenOut);
         require(pair != address(0), PairNotFound());
 
-        if (tokenIn == WETH && msg.value > 0) {
-            require(msg.value >= amountIn, MismatchedEthAmount(msg.value, amountIn));
-            IWETH(WETH).deposit{value: msg.value}();
-            safeTransfer(WETH, pair, amountIn);
+        if (tokenIn == weth && msg.value > 0) {
+            require(msg.value == amountIn, MismatchedEthAmount(msg.value, amountIn));
+            IWETH(weth).deposit{value: msg.value}();
+            safeTransfer(weth, pair, amountIn);
         } else {
             if (pullIn){
+                require(tokenAllowance(tokenIn, msg.sender, address(this)) >= amountIn, InsufficientAllowance(tokenIn, msg.sender, amountIn));
                 safeTransferFrom(tokenIn, msg.sender, pair, amountIn);
             } else {
                 safeTransfer(tokenIn, pair, amountIn);
@@ -81,9 +65,26 @@ abstract contract UniswapV2DirectSwapper is DeploymentAddresses, TransferHelper 
         IUniswapV2Pair(pair).swap(amount0Out, amount1Out, address(this), new bytes(0));
         amountOut = tokenBalance(_tokenOut, address(this)) - tokenOutBalanceBefore;
         if (pushOut) {
-            safeTransfer(_tokenOut, msg.sender, amountOut);
-        }
+            if (_tokenOut == weth) {
+                IWETH(weth).withdraw(amountOut);
+                executeCall(msg.sender, amountOut, new bytes(0));
+            } else {
+                safeTransfer(_tokenOut, msg.sender, amountOut);
+            }
 
+        }
+    }
+
+    function quoteV2(address tokenIn, address tokenOut, uint256 amountIn) external view returns(uint256) {
+        address pair = IUniswapV2Factory(factory).getPair(tokenIn, tokenOut);
+        require(pair != address(0), PairNotFound());
+        (uint112 reserve0, uint112 reserve1, ) = IUniswapV2Pair(pair).getReserves();
+        address token0 = IUniswapV2Pair(pair).token0();
+        address token1 = IUniswapV2Pair(pair).token1();
+
+        (uint256 amount0Out, uint256 amount1Out) =
+            _calculateSwap(tokenIn, token0, token1, reserve0, reserve1, amountIn);
+        return amount0Out == 0 ? amount1Out : amount0Out;
     }
 
 
@@ -116,7 +117,4 @@ abstract contract UniswapV2DirectSwapper is DeploymentAddresses, TransferHelper 
             revert InvalidToken(tokenIn);
         }
     }
-
-
-
 }

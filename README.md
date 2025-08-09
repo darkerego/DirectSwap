@@ -18,3 +18,14 @@ into the input token in the same transaction.
 This is useful for detecting malicious 
 tokens. 
 </p>
+
+
+#### Changelog
+
+
+<p>
+- Aug 9 2025
+  - Optimized logic
+  - add external helper functions
+  - expose external arbitrary call function
+</p>

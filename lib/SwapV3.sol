@@ -1,39 +1,8 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
-// Copyright Darkerego, 2025
+pragma solidity ^0.8.30;
 import {DeploymentAddresses} from "lib/DeploymentAddresses.sol";
 import {TransferHelper} from "lib/TransferHelper.sol";
-
-interface IUniswapV3Pool {
-    function token0() external view returns (address);
-    function token1() external view returns (address);
-    function slot0() external view returns (
-        uint160 sqrtPriceX96,
-        int24 tick,
-        uint16 observationIndex,
-        uint16 observationCardinality,
-        uint16 observationCardinalityNext,
-        uint8 feeProtocol,
-        bool unlocked
-    );
-    function swap(
-        address recipient,
-        bool zeroForOne,
-        int256 amountSpecified,
-        uint160 sqrtPriceLimitX96,
-        bytes calldata data
-    ) external returns (int256 amount0, int256 amount1);
-}
-
-interface IUniswapV3Factory {
-    function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address pool);
-}
-
-interface IWETH {
-    function deposit() external payable;
-    function withdraw(uint256) external;
-}
-
+import {IWETH, IUniswapV3Factory, IUniswapV3Pool} from "lib/Interfaces.sol";
 
 
 contract UniswapV3DirectSwapper is DeploymentAddresses, TransferHelper {
@@ -41,17 +10,23 @@ contract UniswapV3DirectSwapper is DeploymentAddresses, TransferHelper {
     address private immutable weth;
     uint160 private constant MIN_SQRT_RATIO = 4295128739 + 1;
     uint160 private constant MAX_SQRT_RATIO = 1461446703485210103287273052203988822378723970341 - 1;
-
     uint24[4] private fees = [100, 500, 3000, 10000];
     error InvalidCallback(address _caller, address _pool);
     error NoPoolFound();
     error AmountMismatch(uint256 msgValue, uint256 amountIn);
+    error QuoteCallFailed();
     event Callback(address indexed caller);
 
-    constructor() {
-        factory = deployment.uniswapV3Factory;
-        weth = deployment.wrappedEther;
+    struct QuoteParams {
+        address tokenIn;
+        address tokenOut;
+        uint256 amountIn;
+        uint24 fee;
+        uint160 sqrtPriceLimitX96;
+    }
 
+    constructor() {
+        (factory, weth) = (deployment.uniswapV3Factory, deployment.wrappedEther);
     }
 
 
@@ -70,29 +45,26 @@ contract UniswapV3DirectSwapper is DeploymentAddresses, TransferHelper {
     }
 
     function _swapV3(
-        address tokenIn,
-        address tokenOut,
-        uint256 amountIn,
-        uint24 fee,
-        bool pullIn, // calls transferFrom(msg.sender, address(this), amountIn) before swap
-        bool pushOut // calls transfer(msg.sender, amountOut) after swap
+        address tokenIn, // @dev sell
+        address tokenOut, //@dev buy
+        uint256 amountIn, //@dev sell amount
+        uint24 fee, // @dev leave 0 to autodetect
+        bool pullIn, // @dev input token is weth, wrap native ether, otherwise, call transferFrom(msg.sender, address(this), amountIn
+        bool pushOut // @dev output token is weth, unwrap and send native eth sender, otherwise call tranfer(msg.sender, amountOut)
     ) internal returns (address poolUsed, uint256 amountOut) {
 
-        (address _tokenOut, address _tokenIn, uint256 _amountIn, uint24 _fee) = (tokenIn, tokenOut, amountIn, fee);
-        if (fee == 0) {
-            (poolUsed, _fee) = findBestFeePool(tokenIn, tokenOut);
-            require(poolUsed != address(0), NoPoolFound());
-        } else {
-            poolUsed = IUniswapV3Factory(factory).getPool(tokenIn, tokenOut, fee);
-            require(poolUsed != address(0), NoPoolFound());
-        }
-        bool zeroForOne = tokenIn == IUniswapV3Pool(poolUsed).token0();
-        uint160 sqrtPriceLimitX96 = computeSqrtPriceLimit(poolUsed, zeroForOne);
+         (address _tokenIn, address _tokenOut, uint256 _amountIn, uint24 _fee,
+         uint160 sqrtPriceLimitX96, bool zeroForOne) = (tokenIn, tokenOut, amountIn, fee, 0, false);
+
+
+        //bool zeroForOne = tokenIn == IUniswapV3Pool(poolUsed).token0();
+        (poolUsed , _fee, sqrtPriceLimitX96, zeroForOne ) = parsePool(tokenIn, tokenOut, fee);
         if (msg.value > 0 && tokenIn == weth) {
             require(amountIn == msg.value, AmountMismatch(msg.value, amountIn));
             IWETH(weth).deposit{value: msg.value}();
         } else {
             if (pullIn) {
+                require(tokenAllowance(tokenIn, msg.sender, address(this)) >= amountIn, InsufficientAllowance(tokenIn, msg.sender, amountIn));
                 safeTransferFrom(tokenIn, msg.sender, address(this), amountIn);
             }
         }
@@ -106,10 +78,56 @@ contract UniswapV3DirectSwapper is DeploymentAddresses, TransferHelper {
         int256 _amountOut = zeroForOne ? -amount1 : -amount0;
         amountOut = uint256(_amountOut);
         if (pushOut) {
-            safeTransfer(_tokenOut, msg.sender, amountOut);
+            if (_tokenOut == weth) {
+                IWETH(weth).withdraw(amountOut);
+                executeCall(msg.sender, amountOut, new bytes(0));
+            } else {
+                safeTransfer(_tokenOut, msg.sender, amountOut);
+            }
+
+        }
+    }
+
+
+
+    function quoteV3(
+        address tokenIn,
+        address tokenOut,
+        uint24 fee,
+        uint256 amountIn,
+        uint160 sqrtPriceLimitX96
+    ) external view returns (uint256 amountOut) {
+        (, uint24 _fee, uint160 _sqrtPriceLimitX96, ) = parsePool(tokenIn, tokenOut, fee);
+        fee == 0 ? _fee : fee;
+        sqrtPriceLimitX96 == 0 ? _sqrtPriceLimitX96 : _sqrtPriceLimitX96;
+        (, bytes memory r) = staticCall(
+            deployment.uniswapV3Quoter,
+            abi.encodeWithSelector(
+                0xc6a5026a,
+                QuoteParams(tokenIn, tokenOut, amountIn, fee, sqrtPriceLimitX96)
+            )
+        );
+        (amountOut,,,) = abi.decode(r, (uint256, uint160, uint32, uint256));
         }
 
-
+    function parsePool(
+        address tokenIn,
+        address tokenOut,
+        uint24 fee
+        ) internal view returns(
+            address pool,
+            uint24 _fee,
+            uint160 sqrtPriceLimitX96,
+            bool zeroForOne
+        ) {
+        if (fee == 0) {
+            (pool, _fee) = findBestFeePool(tokenIn, tokenOut);
+        } else {
+            (pool,_fee) = (IUniswapV3Factory(factory).getPool(tokenIn, tokenOut, fee), fee);
+        }
+        require(pool != address(0), NoPoolFound());
+        zeroForOne = tokenIn == IUniswapV3Pool(pool).token0();
+        sqrtPriceLimitX96 = computeSqrtPriceLimit(pool, zeroForOne);
     }
 
     function computeSqrtPriceLimit(
@@ -158,19 +176,32 @@ contract UniswapV3DirectSwapper is DeploymentAddresses, TransferHelper {
         int256 amount0Delta,
         int256 amount1Delta,
         bytes calldata data
-    ) external {
+    ) external virtual {
+        _uniswapV3SwapCallback(amount0Delta, amount1Delta, data);
+    }
+
+    function _uniswapV3SwapCallback(
+        int256 amount0Delta,
+        int256 amount1Delta,
+        bytes calldata data
+    ) internal {
         (address token0, address token1, uint24 fee) = abi.decode(data, (address, address, uint24));
         address pool = IUniswapV3Factory(factory).getPool(token0, token1, fee);
         require(msg.sender == pool, InvalidCallback(msg.sender, pool));
          if (amount0Delta > 0) {
             safeTransfer(IUniswapV3Pool(msg.sender).token0(), pool, uint256(amount0Delta));
-        } else {
-            assert(amount1Delta > 0);
+        } else if (amount1Delta > 0) {
             safeTransfer(IUniswapV3Pool(msg.sender).token1(), pool, uint256(amount1Delta));
-        }
+            }
+          else {
+            revert InvalidCallback(msg.sender, pool);
+          }
 
 
-    }
+        }}
 
 
-}
+
+
+
+

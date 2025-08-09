@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
-// Copyright Darkerego, 2025
+pragma solidity ^0.8.30;
+
 abstract contract TransferHelper {
     error CallFailed(address,bytes4);
     error StaticCallFailed(address recipient, bytes data);
+    error InsufficientAllowance(address token, address holder, uint256 amount);
 
     function thisBalance() internal view returns(uint b) {
         assembly {b := selfbalance()}
@@ -65,7 +66,7 @@ abstract contract TransferHelper {
 
         }
 
-    function staticCall(address target, bytes memory callData) private view returns (bool success, bytes memory data) {
+    function staticCall(address target, bytes memory callData) internal view returns (bool success, bytes memory data) {
 
         assembly {
             let size := mload(callData) // Get the data size
@@ -79,6 +80,11 @@ abstract contract TransferHelper {
                 add(ptr, size), // Output data pointer
                 0             // Output data size, will be updated later
             )
+            if iszero(success) {
+                mstore(0x00, 0xe10bf1cc)
+                revert(0x00, 0x04)
+
+            }
 
             let retSize := returndatasize()
             data := mload(0x40) // Fetch the free memory pointer
