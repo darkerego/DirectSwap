@@ -2,30 +2,29 @@
 pragma solidity ^0.8.30;
 
 abstract contract TransferHelper {
-    error CallFailed(address,bytes4);
+    error CallFailed(address, bytes4);
     error StaticCallFailed(address recipient, bytes data);
     error InsufficientAllowance(address token, address holder, uint256 amount);
+    error SlippageExceeded(uint256, uint256);
+    error AmountTooLargeForInt256();
 
-    function thisBalance() internal view returns(uint b) {
-        assembly {b := selfbalance()}
+    function thisBalance() internal view returns (uint b) {
+        assembly {
+            b := selfbalance()
+        }
     }
 
     function codeSize(address) internal view returns (int256 size) {
         assembly {
             size := extcodesize(calldataload(0x04))
-            }
+        }
     }
-
-    function isContract(address addr) internal view returns(bool) {
-        return codeSize(addr) > 0;
-    }
-
 
     /*
     @dev Lowlevel static call to get a ERC20 token's owner's allowance for a given spender
     */
 
-    function tokenAllowance(address tokenAddress, address ownerAddress, address spenderAddress) internal view returns(uint256 _allowance) {
+    function tokenAllowance(address tokenAddress, address ownerAddress, address spenderAddress) internal view returns (uint256 _allowance) {
         bytes memory _data = abi.encodeWithSelector(0xdd62ed3e, ownerAddress, spenderAddress);
         (bool _success, bytes memory allowanceData) = staticCall(tokenAddress, _data);
         require(_success, StaticCallFailed(tokenAddress, _data));
@@ -36,7 +35,7 @@ abstract contract TransferHelper {
     @dev Lowlevel static call to get a ERC20 token's balance
     */
 
-    function tokenBalance(address tokenAddress, address accountAddress) internal view returns(uint256 bal) {
+    function tokenBalance(address tokenAddress, address accountAddress) internal view returns (uint256 bal) {
         bytes memory data = abi.encodeWithSelector(0x70a08231, accountAddress);
         (bool success, bytes memory balanceData) = staticCall(tokenAddress, data);
         require(success, StaticCallFailed(tokenAddress, data));
@@ -51,9 +50,9 @@ abstract contract TransferHelper {
         address recipient,
         uint256 _value,
         bytes memory data
-        ) internal returns(bytes memory retData) {
-            // solhint-disable-next-line no-inline-assembly
-       assembly {
+    ) internal returns (bytes memory retData) {
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
             let success := eq(call(gas(), recipient, _value, add(data, 0x20), mload(data), 0x00, 0x00), 0x1)
             let retSize := returndatasize()
             retData := mload(0x40)
@@ -62,9 +61,9 @@ abstract contract TransferHelper {
             returndatacopy(add(retData, 0x20), 0, retSize) // Copy return data
             if iszero(success) {
                 revert(retData, retSize)}
-            }
-
         }
+
+    }
 
     function staticCall(address target, bytes memory callData) internal view returns (bool success, bytes memory data) {
 
@@ -98,7 +97,7 @@ abstract contract TransferHelper {
 
     function getLastTransferResult(
         address token
-        ) internal view returns (bool success) {
+    ) internal view returns (bool success) {
         // solhint-disable-next-line no-inline-assembly
         assembly {
             let s := returndatasize()
@@ -129,7 +128,7 @@ abstract contract TransferHelper {
         address token,
         address spender,
         uint256 amount
-        ) internal {
+    ) internal {
         bytes4 selector_ = 0x095ea7b3;
 
         // solhint-disable-next-line no-inline-assembly
@@ -151,7 +150,7 @@ abstract contract TransferHelper {
         address token,
         address to,
         uint256 value
-        ) internal {
+    ) internal {
         bytes4 selector_ = 0xa9059cbb;
 
         // solhint-disable-next-line no-inline-assembly
@@ -166,7 +165,7 @@ abstract contract TransferHelper {
             }
         }
 
-        if (! getLastTransferResult(token)) {
+        if (!getLastTransferResult(token)) {
             revert CallFailed(token, selector_);
         }
     }
@@ -178,7 +177,7 @@ abstract contract TransferHelper {
         address from,
         address to,
         uint256 value
-        ) internal {
+    ) internal {
         bytes4 selector_ = 0x23b872dd;
 
         // solhint-disable-next-line no-inline-assembly
@@ -194,8 +193,7 @@ abstract contract TransferHelper {
             }
         }
 
-        if (! getLastTransferResult(token)) {
-            revert CallFailed(token, selector_);
-        }
-    }
+        require(getLastTransferResult(token), CallFailed(token, selector_));}
+
+
 }

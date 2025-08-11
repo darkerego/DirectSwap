@@ -1,0 +1,3 @@
+[submodule "DirectSwap/lib/forge-std"]
+	path = DirectSwap/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std

@@ -2,8 +2,8 @@
 // Copyright Darkerego, 2025 0xA0E266f9bf8D532f9E0694d8D09374E47C11cE54
 pragma solidity ^0.8.30;
 
-import {UniswapV2DirectSwapper} from "lib/SwapV2.sol";
-import{UniswapV3DirectSwapper} from "lib/SwapV3.sol";
+import {UniswapV2DirectSwapper} from "./libs/SwapV2.sol";
+import{UniswapV3DirectSwapper} from "./libs/SwapV3.sol";
 
 
 /*
@@ -47,7 +47,7 @@ contract UniswapDirectSwap is UniswapV2DirectSwapper, UniswapV3DirectSwapper {
 
     }
 
-    constructor() payable {
+    constructor() {
         authorized[msg.sender] = 1;
         weth = deployment.wrappedEther;
     }
@@ -74,7 +74,8 @@ contract UniswapDirectSwap is UniswapV2DirectSwapper, UniswapV3DirectSwapper {
     struct Swap {
         address tokenIn;
         address tokenOut;
-        int8 fee;
+        int24 fee;
+        uint32 slippageBps; // 0 = exact, else basis points (e.g., 50 = 0.5%)
     }
 
     /*
@@ -88,22 +89,39 @@ contract UniswapDirectSwap is UniswapV2DirectSwapper, UniswapV3DirectSwapper {
     }
 
 
+    // ============================
+    // MultiHop / public swap APIs
+    // ============================
     /*
-    * @dev : Please let me know if you test this and it works as intended.
-    * @notice : WARNING: This function has not been tested yet.
-    */
+     * MultiHopSwap: supports mixed V2/V3 hops. Each Swap has:
+     *  - tokenIn
+     *  - tokenOut
+     *  - fee (int32): -1 => V2, 0 => autodetect V3, >0 => explicit V3 fee
+     *  - slippageBps: only used for V2 hop (0 => exact)
+     */
+   // Multi-hop; per-swap slippage applied
     function MultiHopSwap(MultiHopParams calldata params) external payable auth returns (uint256 finalAmountOut) {
+        require(params.swaps.length > 0, "no swaps");
         uint256 amountIn = params.amountIn;
+
         for (uint256 i = 0; i < params.swaps.length; i++) {
             Swap memory s = params.swaps[i];
-            if (s.fee == -1) {
-                (, amountIn) = _swapV2(s.tokenIn, s.tokenOut, amountIn, i == 0, i == params.swaps.length - 1);
+            bool pullIn = (i == 0);
+            bool pushOut = (i == params.swaps.length - 1);
+
+            if (s.fee < 0) {
+                // V2 hop with slippage
+                (, amountIn) = _swapV2(s.tokenIn, s.tokenOut, amountIn, s.slippageBps, pullIn, pushOut);
             } else {
-                (, amountIn) = _swapV3(s.tokenIn, s.tokenOut, amountIn, s.fee == 0 ? 0 : uint24(uint8(s.fee)), i == 0, i == params.swaps.length - 1);
+                // V3 hop with slippage
+                uint24 feeToUse = s.fee == 0 ? 0 : uint24(uint256(int256(s.fee)));
+                (, amountIn) = _swapV3(s.tokenIn, s.tokenOut, amountIn, feeToUse, s.slippageBps, pullIn, pushOut);
             }
         }
+
         finalAmountOut = amountIn;
     }
+
 
     /*
     * @dev : overrides SwapV3.swapV3 with authentication
@@ -117,14 +135,15 @@ contract UniswapDirectSwap is UniswapV2DirectSwapper, UniswapV3DirectSwapper {
         address tokenIn,
         address tokenOut,
         uint256 amountIn,
-        uint24 fee
+        uint24 fee,
+        uint32 slippageBps
         ) external payable auth override
         returns(
             address poolUsed,
             uint256 amountOut
             ) {
 
-        (poolUsed, amountOut) = super._swapV3(tokenIn, tokenOut, amountIn, fee, true, true);
+        (poolUsed, amountOut) = super._swapV3(tokenIn, tokenOut, amountIn, fee, slippageBps, true, true);
         emit SwapExecuted(evaluateSwapResults(tokenIn, tokenOut, amountIn, amountOut, true), true, amountOut);
     }
 
@@ -137,7 +156,8 @@ contract UniswapDirectSwap is UniswapV2DirectSwapper, UniswapV3DirectSwapper {
     function swapV2(
         address tokenIn,
         address tokenOut,
-        uint256 amountIn
+        uint256 amountIn,
+        uint32 slippageBps
         ) external payable auth override
         returns
         (
@@ -145,7 +165,7 @@ contract UniswapDirectSwap is UniswapV2DirectSwapper, UniswapV3DirectSwapper {
             uint256 amountOut
         ) {
 
-        (poolUsed, amountOut) = super._swapV2(tokenIn, tokenOut, amountIn, true, true);
+        (poolUsed, amountOut) = super._swapV2(tokenIn, tokenOut, amountIn,  slippageBps, true, true);
         emit SwapExecuted(evaluateSwapResults(tokenIn, tokenOut, amountIn, amountOut, false), false, amountOut);
     }
 
@@ -166,6 +186,7 @@ contract UniswapDirectSwap is UniswapV2DirectSwapper, UniswapV3DirectSwapper {
         address tokenOut,
         uint256 amountIn,
         uint24 fee,
+        uint32 slippageBps,
         bool useV3
         ) external payable auth
         returns(
@@ -173,15 +194,15 @@ contract UniswapDirectSwap is UniswapV2DirectSwapper, UniswapV3DirectSwapper {
             uint256 amountOut1
             ){
         if (useV3) {
-            (, amountOut0) = _swapV3(tokenIn, tokenOut, amountIn, fee, true, false);
+            (, amountOut0) = _swapV3(tokenIn, tokenOut, amountIn, fee,slippageBps, true, false);
             bytes32 swapId0 = evaluateSwapResults(tokenIn, tokenOut, amountIn, amountOut0, true);
-            (, amountOut1) = _swapV3(tokenOut, tokenIn, amountOut0, fee, false, true);
+            (, amountOut1) = _swapV3(tokenOut, tokenIn, amountOut0, fee, slippageBps, false, true);
             bytes32 swapId1 = evaluateSwapResults(tokenIn, tokenOut, amountOut0, amountOut1, true);
             logSwapTest(swapId0, swapId1, int256(int256(amountOut1) - int256(amountIn)), true);
         } else {
-            (, amountOut0) = _swapV2(tokenIn, tokenOut, amountIn, true, false);
+            (, amountOut0) = _swapV2(tokenIn, tokenOut, amountIn, slippageBps, true, false);
             bytes32 swapId0 = evaluateSwapResults(tokenIn, tokenOut, amountIn, amountOut0, false);
-            (, amountOut1) = _swapV2(tokenOut, tokenIn, amountOut0, false, true);
+            (, amountOut1) = _swapV2(tokenOut, tokenIn, amountOut0, slippageBps, false, true);
             bytes32 swapId1 = evaluateSwapResults(tokenIn, tokenOut, amountOut0, amountOut1, false);
             logSwapTest(swapId0, swapId1, int256(int256(amountOut1) - int256(amountIn)), false);
         }
@@ -196,15 +217,15 @@ contract UniswapDirectSwap is UniswapV2DirectSwapper, UniswapV3DirectSwapper {
     * @param pull: pull funds from msg.sender
     * @param push : push funds to msg.sender
     */
-    function swap(address tokenIn, address tokenOut, uint256 amountIn, int24 fee, bool pull, bool push)
+    function swap(address tokenIn, address tokenOut, uint256 amountIn, int24 fee, uint32 slippageBps, bool pull, bool push)
     internal returns(
         uint amountPurchased
         ){
 
         if (fee < 0) {
-            (, amountPurchased) = _swapV2(tokenIn, tokenOut, amountIn, pull, push);
+            (, amountPurchased) = _swapV2(tokenIn, tokenOut, amountIn, slippageBps, pull, push);
         } else {
-            (, amountPurchased) = _swapV3(tokenIn, tokenOut, amountIn, uint24(fee), pull, push);
+            (, amountPurchased) = _swapV3(tokenIn, tokenOut, amountIn, uint24(fee), slippageBps, pull, push);
         }
 
     }
@@ -216,10 +237,10 @@ contract UniswapDirectSwap is UniswapV2DirectSwapper, UniswapV3DirectSwapper {
     * @param fee : fee: use -1 for Uniswap V2 Pools, 0 to auto detect or a V3 fee tier ( ie 100, 500, 3000, or 10000)
     * @dev : emits Enter(token, amountOut)
     */
-    function enter(address token, int24 fee) external payable auth returns(uint amountOut) {
+    function enter(address token, int24 fee, uint32 slippageBps) external payable auth returns(uint amountOut) {
         amountOut = swap(
             weth, token ,
-            msg.value, fee, true, false
+            msg.value, fee, slippageBps, true, false
         );
         emit Enter(token, amountOut);
     }
@@ -231,10 +252,10 @@ contract UniswapDirectSwap is UniswapV2DirectSwapper, UniswapV3DirectSwapper {
     * @param fee: use -1 for Uniswap V2 Pools, 0 to auto detect or a V3 fee tier ( ie 100, 500, 3000, or 10000)
     * @dev : emits Exit(token, amountOut)
     */
-    function exit(address token, int24 fee) external auth returns(uint amountOut) {
+    function exit(address token, int24 fee, uint24 slippageBps) external auth returns(uint amountOut) {
         amountOut = swap(
             token, weth, tokenBalance(token, address(this)),
-            fee, false, true
+            fee, slippageBps, false, true
         );
         emit Exit(token, amountOut);
     }
@@ -292,8 +313,8 @@ contract UniswapDirectSwap is UniswapV2DirectSwapper, UniswapV3DirectSwapper {
         int256 amount0Delta,
         int256 amount1Delta,
         bytes calldata data
-    ) external authOrigin override  {
-        super._uniswapV3SwapCallback(amount0Delta, amount1Delta, data);
+    ) external  {
+        _uniswapV3SwapCallback(amount0Delta, amount1Delta, data);
     }
 
     /*
