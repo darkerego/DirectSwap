@@ -6,8 +6,8 @@
 
 <p>
 This is a smart contract that performs swaps
-by directly interacting withUniswap V2 and V3 
-liquidity pools.
+by directly interacting with Uniswap V2, V3 and V4
+liquidity pools. It also exposes quote helpers (`quoteV2`, `quoteV3`, `quoteV4`) for estimating swap outputs without executing trades.
 </p>
 
 <p>
