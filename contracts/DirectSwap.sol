@@ -3,14 +3,16 @@
 pragma solidity ^0.8.30;
 
 import {UniswapV2DirectSwapper} from "./libs/SwapV2.sol";
-import{UniswapV3DirectSwapper} from "./libs/SwapV3.sol";
+import {UniswapV3DirectSwapper} from "./libs/SwapV3.sol";
+import {UniswapV4DirectSwapper} from "./libs/SwapV4.sol";
+import {IUniswapV4PoolManager} from "./libs/Interfaces.sol";
 
 
 /*
 * @dev Perform swaps on uniswap v3 and v3 by interacting directly with the liquidity pools, rather than the swap router.
 */
 
-contract UniswapDirectSwap is UniswapV2DirectSwapper, UniswapV3DirectSwapper {
+contract UniswapDirectSwap is UniswapV2DirectSwapper, UniswapV3DirectSwapper, UniswapV4DirectSwapper {
     address public immutable weth;
     uint256 private nonce;
     bytes32 internal constant ACCESS_GRANTED_SIG = 0xdeb5c31899474fe8c086c95ff9344480d19365676a6a1d22d37bb8e3e7c0ef18;
@@ -167,6 +169,24 @@ contract UniswapDirectSwap is UniswapV2DirectSwapper, UniswapV3DirectSwapper {
 
         (poolUsed, amountOut) = super._swapV2(tokenIn, tokenOut, amountIn,  slippageBps, true, true);
         emit SwapExecuted(evaluateSwapResults(tokenIn, tokenOut, amountIn, amountOut, false), false, amountOut);
+    }
+
+    function swapV4(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint24 fee,
+        int24 tickSpacing,
+        uint32 slippageBps
+    )
+        external
+        payable
+        auth
+        override
+        returns (IUniswapV4PoolManager.PoolKey memory key, uint256 amountOut)
+    {
+        (key, amountOut) = super._swapV4(tokenIn, tokenOut, amountIn, fee, tickSpacing, slippageBps, true, true);
+        emit SwapExecuted(evaluateSwapResults(tokenIn, tokenOut, amountIn, amountOut, true), true, amountOut);
     }
 
     /*

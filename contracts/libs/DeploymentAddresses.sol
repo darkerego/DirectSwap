@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.26;
 
-
-
 struct Deployment {
     uint256 cid;
     address uniswapV2Router;
@@ -10,6 +8,8 @@ struct Deployment {
     address uniswapV3Router;
     address uniswapV3Factory;
     address uniswapV3Quoter;
+    address uniswapV4Factory;
+    address uniswapV4PoolManager;
     address wrappedEther;
     address nativeEther;
 
@@ -35,6 +35,8 @@ contract DeploymentAddresses {
             deployment.uniswapV3Router= 0x2626664c2603336E57B271c5C0b26F421741e481;
             deployment.uniswapV3Factory = 0x33128a8fC17869897dcE68Ed026d694621f6FDfD;
             deployment.uniswapV3Quoter = 0x222cA98F00eD15B1faE10B61c277703a194cf5d2; // view quoter
+            deployment.uniswapV4Factory = address(0);
+            deployment.uniswapV4PoolManager = address(0);
             deployment.wrappedEther = 0x4200000000000000000000000000000000000006;
 
         } else {

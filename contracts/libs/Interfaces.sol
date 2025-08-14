@@ -45,3 +45,28 @@ interface IUniswapV3Pool {
         bytes calldata data
     ) external returns (int256 amount0, int256 amount1);
 }
+
+interface IUniswapV4PoolManager {
+    struct PoolKey {
+        address currency0;
+        address currency1;
+        uint24 fee;
+        int24 tickSpacing;
+        address hook;
+    }
+
+    struct SwapParams {
+        PoolKey key;
+        bool zeroForOne;
+        int256 amountSpecified;
+        uint160 sqrtPriceLimitX96;
+        bytes hookData;
+    }
+
+    struct BalanceDelta {
+        int256 amount0;
+        int256 amount1;
+    }
+
+    function swap(SwapParams calldata params) external returns (BalanceDelta memory delta);
+}
