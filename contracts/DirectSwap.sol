@@ -197,13 +197,13 @@ contract UniswapDirectSwap is UniswapV2DirectSwapper, UniswapV3DirectSwapper {
             (, amountOut0) = _swapV3(tokenIn, tokenOut, amountIn, fee,slippageBps, true, false);
             bytes32 swapId0 = evaluateSwapResults(tokenIn, tokenOut, amountIn, amountOut0, true);
             (, amountOut1) = _swapV3(tokenOut, tokenIn, amountOut0, fee, slippageBps, false, true);
-            bytes32 swapId1 = evaluateSwapResults(tokenIn, tokenOut, amountOut0, amountOut1, true);
+            bytes32 swapId1 = evaluateSwapResults(tokenOut, tokenIn, amountOut0, amountOut1, true);
             logSwapTest(swapId0, swapId1, int256(int256(amountOut1) - int256(amountIn)), true);
         } else {
             (, amountOut0) = _swapV2(tokenIn, tokenOut, amountIn, slippageBps, true, false);
             bytes32 swapId0 = evaluateSwapResults(tokenIn, tokenOut, amountIn, amountOut0, false);
             (, amountOut1) = _swapV2(tokenOut, tokenIn, amountOut0, slippageBps, false, true);
-            bytes32 swapId1 = evaluateSwapResults(tokenIn, tokenOut, amountOut0, amountOut1, false);
+            bytes32 swapId1 = evaluateSwapResults(tokenOut, tokenIn, amountOut0, amountOut1, false);
             logSwapTest(swapId0, swapId1, int256(int256(amountOut1) - int256(amountIn)), false);
         }
     }
